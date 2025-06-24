@@ -212,34 +212,13 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Configuration ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "DEMO_KEY", authDomain: "DEMO.firebaseapp.com", projectId: "DEMO" };
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-audit-app';
-
-        // --- Firebase Initialization ---
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        // --- State Management ---
-        let findingsData = [];
-        let firestoreDocRef;
-        let unsubscribe; 
-
-        // --- Initial Data ---
-        const initialFindings = [
-            { id: 1, finding: "ข้อบกพร่องด้านความปลอดภัย: สินค้า DEMO ไม่ส่งเสียงแจ้งเตือนเมื่อถูกปลดขโมย", suggestion: "ให้หัวหน้าชาแนลเร่งแก้ไขโดยเร่งด่วน เพื่อป้องกันสินค้าถูกขโมย", responsible: "หัวหน้าชาแนล", dueDate: "2025-06-30", status: "คงค้าง" },
-            { id: 2, finding: "เจ้าหน้าที่สาขาไม่เพียงพอ: มีเจ้าหน้าที่ประจำการเพียง 1 คน", suggestion: "แนะนำให้หัวหน้าชาแนลประเมิน Traffic เพื่อเตรียมรับมือช่วงเปิดภาคเรียน และพิจารณาใช้กล่องเปล่าโชว์แทนสินค้าจริงในจุดเสี่ยง", responsible: "หัวหน้าชาแนล", dueDate: "", status: "คงค้าง" },
-            { id: 3, finding: "สินค้าแขวนไม่เต็มช่องแขวนสินค้า", suggestion: "ให้พิจารณาขอเพิ่มสินค้าให้สามารถจัดแสดงในจุดแขวนได้ครบถ้วนเพียงพอ", responsible: "เจ้าหน้าที่, หัวหน้าชาแนล, PM", dueDate: "", status: "คงค้าง" }
-        ];
-
         // --- UI Elements ---
         const loader = document.getElementById('loader');
         const loaderText = document.getElementById('loader-text');
         const mainContent = document.getElementById('main-content');
         const saveBtn = document.getElementById('save-btn');
         const saveStatusEl = document.getElementById('save-status');
-
+        
         // --- UI Control Functions ---
         function showLoader(message) {
             loader.style.display = 'flex';
@@ -258,214 +237,215 @@
             mainContent.style.display = 'block';
         }
 
-        // --- Authentication ---
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                console.log("User is authenticated:", user.uid);
-                loaderText.textContent = 'กำลังโหลดข้อมูลรายงาน...';
-                const reportId = 'b103_20250623';
-                firestoreDocRef = doc(db, "artifacts", appId, "public", "data", "audit_reports", reportId);
-                
-                if(unsubscribe) unsubscribe();
-                loadAndListenForUpdates();
-            } else {
-                console.log("User is not authenticated. Signing in...");
-                loaderText.textContent = 'กำลังยืนยันตัวตน...';
-                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+        // --- Initial Data (Fallback) ---
+        const initialFindings = [
+            { id: 1, finding: "ข้อบกพร่องด้านความปลอดภัย: สินค้า DEMO ไม่ส่งเสียงแจ้งเตือนเมื่อถูกปลดขโมย", suggestion: "ให้หัวหน้าชาแนลเร่งแก้ไขโดยเร่งด่วน เพื่อป้องกันสินค้าถูกขโมย", responsible: "หัวหน้าชาแนล", dueDate: "2025-06-30", status: "คงค้าง" },
+            { id: 2, finding: "เจ้าหน้าที่สาขาไม่เพียงพอ: มีเจ้าหน้าที่ประจำการเพียง 1 คน", suggestion: "แนะนำให้หัวหน้าชาแนลประเมิน Traffic เพื่อเตรียมรับมือช่วงเปิดภาคเรียน และพิจารณาใช้กล่องเปล่าโชว์แทนสินค้าจริงในจุดเสี่ยง", responsible: "หัวหน้าชาแนล", dueDate: "", status: "คงค้าง" },
+            { id: 3, finding: "สินค้าแขวนไม่เต็มช่องแขวนสินค้า", suggestion: "ให้พิจารณาขอเพิ่มสินค้าให้สามารถจัดแสดงในจุดแขวนได้ครบถ้วนเพียงพอ", responsible: "เจ้าหน้าที่, หัวหน้าชาแนล, PM", dueDate: "", status: "คงค้าง" }
+        ];
+
+        // --- Main Execution Block ---
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                // --- Configuration and Initialization ---
+                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '';
+                if (!configStr || configStr.trim() === '') {
+                    throw new Error("Firebase configuration is missing or empty.");
                 }
+                const firebaseConfig = JSON.parse(configStr);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-audit-app';
+
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+
+                // --- State Management ---
+                let findingsData = [];
+                let firestoreDocRef;
+                let unsubscribe; 
+
+                // --- Authentication ---
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        console.log("User is authenticated:", user.uid);
+                        loaderText.textContent = 'กำลังโหลดข้อมูลรายงาน...';
+                        const reportId = 'b103_20250623';
+                        firestoreDocRef = doc(db, "artifacts", appId, "public", "data", "audit_reports", reportId);
+                        
+                        if(unsubscribe) unsubscribe();
+                        loadAndListenForUpdates(db, firestoreDocRef);
+                    } else {
+                        console.log("User is not authenticated. Attempting to sign in...");
+                        loaderText.textContent = 'กำลังยืนยันตัวตน...';
+                        try {
+                            const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                            if (authToken && authToken.trim() !== '') {
+                                await signInWithCustomToken(auth, authToken);
+                            } else {
+                                await signInAnonymously(auth);
+                            }
+                        } catch (authError) {
+                            console.error("Firebase sign-in failed:", authError);
+                            showError(`การยืนยันตัวตนล้มเหลว: ${authError.message}.<br>กรุณาตรวจสอบการตั้งค่า Firebase backend`);
+                        }
+                    }
+                });
+
+                // --- Firestore Data Handling ---
+                function loadAndListenForUpdates(db, docRef) {
+                    if (!docRef) return;
+                    unsubscribe = onSnapshot(docRef, (docSnap) => {
+                        if (docSnap.exists()) {
+                            findingsData = docSnap.data().findings || [];
+                            console.log("Data loaded from Firestore.");
+                        } else {
+                            console.log("No document! Creating with initial data.");
+                            findingsData = JSON.parse(JSON.stringify(initialFindings));
+                            saveChanges(true);
+                        }
+                        renderAll();
+                        showContent();
+                    }, (error) => {
+                        console.error("Error listening to document:", error);
+                        showError("เกิดข้อผิดพลาดในการโหลดข้อมูลจากฐานข้อมูล");
+                    });
+                }
+                
+                async function saveChanges(isInitialSave = false) {
+                    if (!firestoreDocRef) {
+                        console.error("Firestore document reference not set.");
+                        return;
+                    }
+                    if(!isInitialSave) {
+                         saveBtn.disabled = true;
+                         saveBtn.textContent = 'กำลังบันทึก...';
+                    }
+                    try {
+                        await setDoc(firestoreDocRef, { findings: findingsData }, { merge: true });
+                        if(!isInitialSave) {
+                            console.log("Changes saved to Firestore!");
+                            showSaveStatus("บันทึกสำเร็จ!");
+                        }
+                    } catch (error) {
+                        console.error("Error saving changes to Firestore: ", error);
+                         if(!isInitialSave) {
+                            showSaveStatus("เกิดข้อผิดพลาด!", true);
+                            saveBtn.disabled = false;
+                         }
+                    } finally {
+                         if(!isInitialSave){
+                            saveBtn.textContent = 'บันทึกการเปลี่ยนแปลง';
+                         }
+                    }
+                }
+
+                // --- Rendering Logic ---
+                function renderAll() {
+                    renderTable();
+                    updateDashboardMetrics();
+                }
+
+                function renderTable() {
+                    const tableBody = document.getElementById('findings-table-body');
+                    if (!tableBody) return;
+                    tableBody.innerHTML = '';
+                    findingsData.forEach(item => {
+                        const row = document.createElement('tr');
+                        let rowClass = 'bg-white hover:bg-gray-50 align-top';
+                        if(item.status === 'ดำเนินการแล้ว') {
+                            rowClass = 'bg-green-50 hover:bg-green-100 text-gray-500 line-through align-top';
+                        }
+                        row.className = `border-b ${rowClass} transition-colors duration-300`;
+                        row.innerHTML = `
+                            <td class="px-4 py-4 text-center">${item.id}</td>
+                            <td class="px-4 py-4 font-semibold text-current">${item.finding}</td>
+                            <td class="px-4 py-4 text-xs text-current">${item.suggestion}</td>
+                            <td class="px-4 py-4 text-current">${item.responsible}</td>
+                            <td class="px-4 py-4 text-center">
+                                <input type="date" class="w-full p-1 border border-gray-300 rounded-md text-sm text-center date-input" value="${item.dueDate}" data-id="${item.id}">
+                            </td>
+                            <td class="px-4 py-3 text-center">
+                                <select class="w-full p-1.5 border border-gray-300 rounded-md text-xs status-select" data-id="${item.id}">
+                                    <option value="คงค้าง" ${item.status === 'คงค้าง' ? 'selected' : ''}>คงค้าง</option>
+                                    <option value="ดำเนินการแล้ว" ${item.status === 'ดำเนินการแล้ว' ? 'selected' : ''}>ดำเนินการแล้ว</option>
+                                </select>
+                            </td>`;
+                        tableBody.appendChild(row);
+                    });
+                    attachTableEventListeners();
+                }
+
+                function attachTableEventListeners(){
+                    document.querySelectorAll('.date-input, .status-select').forEach(element => {
+                        element.onchange = (e) => {
+                            const id = parseInt(e.target.dataset.id);
+                            const key = e.target.classList.contains('date-input') ? 'dueDate' : 'status';
+                            const value = e.target.value;
+                            const itemIndex = findingsData.findIndex(item => item.id === id);
+                            if (itemIndex > -1) {
+                                findingsData[itemIndex][key] = value;
+                            }
+                            saveBtn.disabled = false;
+                            renderTable();
+                            updateDashboardMetrics();
+                        };
+                    });
+                    saveBtn.addEventListener('click', () => saveChanges(false));
+                }
+                
+                function updateDashboardMetrics() {
+                    const total = findingsData.length;
+                    const completed = findingsData.filter(f => f.status === 'ดำเนินการแล้ว').length;
+                    const pending = total - completed;
+                    const overdue = findingsData.filter(f => f.dueDate && new Date(f.dueDate) < new Date() && f.status === 'คงค้าง').length;
+                    const metricsContainer = document.getElementById('dashboard-metrics');
+                    if(!metricsContainer) return;
+                    metricsContainer.innerHTML = `
+                        <div class='bg-gray-100 p-4 rounded-lg text-center'><h4 class='font-bold text-gray-600'>ข้อตรวจพบทั้งหมด</h4><p class='text-3xl font-bold text-gray-800'>${total}</p></div>
+                        <div class='bg-red-50 p-4 rounded-lg text-center'><h4 class='font-bold text-red-600'>คงค้าง</h4><p class='text-3xl font-bold text-red-800'>${pending}</p></div>
+                        <div class='bg-green-50 p-4 rounded-lg text-center'><h4 class='font-bold text-green-600'>ดำเนินการแล้ว</h4><p class='text-3xl font-bold text-green-800'>${completed}</p></div>
+                        <div class='bg-indigo-50 p-4 rounded-lg text-center'><h4 class='font-bold text-indigo-600'>เร่งด่วน</h4><p class='text-3xl font-bold text-indigo-800'>${overdue}</p></div>`;
+                }
+                
+                function showSaveStatus(message, isError = false) {
+                    const text = saveStatusEl.querySelector('span');
+                    const icon = saveStatusEl.querySelector('ion-icon');
+                    text.textContent = message;
+                    icon.name = isError ? 'alert-circle-outline' : 'cloud-done-outline';
+                    icon.classList.toggle('text-red-500', isError);
+                    icon.classList.toggle('text-green-500', !isError);
+                    saveStatusEl.style.opacity = '1';
+                    setTimeout(() => { saveStatusEl.style.opacity = '0'; }, 3000);
+                }
+
+                // --- Chart Initializations ---
+                initializeCharts();
+
+            } catch (error) {
+                console.error("Initialization Error:", error);
+                showError(`เกิดข้อผิดพลาดในการเริ่มต้น: ${error.message}`);
             }
         });
 
-        // --- Firestore Data Handling ---
-        function loadAndListenForUpdates() {
-            if (!firestoreDocRef) return;
-
-            unsubscribe = onSnapshot(firestoreDocRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    findingsData = docSnap.data().findings || [];
-                     console.log("Data loaded from Firestore.");
-                } else {
-                    console.log("No document! Creating with initial data.");
-                    findingsData = JSON.parse(JSON.stringify(initialFindings));
-                    saveChanges(true); // Save initial data silently
-                }
-                renderAll();
-                showContent();
-            }, (error) => {
-                console.error("Error listening to document:", error);
-                showError("เกิดข้อผิดพลาดในการโหลดข้อมูลจากฐานข้อมูล");
-            });
-        }
-        
-        async function saveChanges(isInitialSave = false) {
-            if (!firestoreDocRef) {
-                console.error("Firestore document reference not set.");
-                return;
-            }
-            if(!isInitialSave) {
-                 saveBtn.disabled = true;
-                 saveBtn.textContent = 'กำลังบันทึก...';
-            }
-           
-            try {
-                await setDoc(firestoreDocRef, { findings: findingsData }, { merge: true });
-                if(!isInitialSave) {
-                    console.log("Changes saved to Firestore!");
-                    showSaveStatus("บันทึกสำเร็จ!");
-                }
-            } catch (error) {
-                console.error("Error saving changes to Firestore: ", error);
-                 if(!isInitialSave) {
-                    showSaveStatus("เกิดข้อผิดพลาด!", true);
-                    saveBtn.disabled = false;
-                 }
-            } finally {
-                 if(!isInitialSave){
-                    saveBtn.textContent = 'บันทึกการเปลี่ยนแปลง';
-                 }
-            }
-        }
-
-        // --- Rendering Logic ---
-        function renderAll() {
-            renderTable();
-            updateDashboardMetrics();
-        }
-
-        function renderTable() {
-            const tableBody = document.getElementById('findings-table-body');
-            if (!tableBody) return;
-            tableBody.innerHTML = '';
-
-            findingsData.forEach(item => {
-                const row = document.createElement('tr');
-                let rowClass = 'bg-white hover:bg-gray-50 align-top';
-                if(item.status === 'ดำเนินการแล้ว') {
-                    rowClass = 'bg-green-50 hover:bg-green-100 text-gray-500 line-through align-top';
-                }
-                row.className = `border-b ${rowClass} transition-colors duration-300`;
-                
-                row.innerHTML = `
-                    <td class="px-4 py-4 text-center">${item.id}</td>
-                    <td class="px-4 py-4 font-semibold text-current">${item.finding}</td>
-                    <td class="px-4 py-4 text-xs text-current">${item.suggestion}</td>
-                    <td class="px-4 py-4 text-current">${item.responsible}</td>
-                    <td class="px-4 py-4 text-center">
-                        <input type="date" class="w-full p-1 border border-gray-300 rounded-md text-sm text-center date-input" value="${item.dueDate}" data-id="${item.id}">
-                    </td>
-                    <td class="px-4 py-3 text-center">
-                        <select class="w-full p-1.5 border border-gray-300 rounded-md text-xs status-select" data-id="${item.id}">
-                            <option value="คงค้าง" ${item.status === 'คงค้าง' ? 'selected' : ''}>คงค้าง</option>
-                            <option value="ดำเนินการแล้ว" ${item.status === 'ดำเนินการแล้ว' ? 'selected' : ''}>ดำเนินการแล้ว</option>
-                        </select>
-                    </td>`;
-                tableBody.appendChild(row);
-            });
-            attachTableEventListeners();
-        }
-
-        function attachTableEventListeners(){
-            document.querySelectorAll('.date-input, .status-select').forEach(element => {
-                element.onchange = (e) => {
-                    const id = parseInt(e.target.dataset.id);
-                    const key = e.target.classList.contains('date-input') ? 'dueDate' : 'status';
-                    const value = e.target.value;
-                    
-                    const itemIndex = findingsData.findIndex(item => item.id === id);
-                    if (itemIndex > -1) {
-                        findingsData[itemIndex][key] = value;
-                    }
-                    saveBtn.disabled = false;
-                    renderTable();
-                    updateDashboardMetrics();
-                };
-            });
-            saveBtn.addEventListener('click', () => saveChanges(false));
-        }
-        
-        function updateDashboardMetrics() {
-            const total = findingsData.length;
-            const completed = findingsData.filter(f => f.status === 'ดำเนินการแล้ว').length;
-            const pending = total - completed;
-            const overdue = findingsData.filter(f => f.dueDate && new Date(f.dueDate) < new Date() && f.status === 'คงค้าง').length;
-            
-            const metricsContainer = document.getElementById('dashboard-metrics');
-            if(!metricsContainer) return;
-            
-            metricsContainer.innerHTML = `
-                <div class='bg-gray-100 p-4 rounded-lg text-center'><h4 class='font-bold text-gray-600'>ข้อตรวจพบทั้งหมด</h4><p class='text-3xl font-bold text-gray-800'>${total}</p></div>
-                <div class='bg-red-50 p-4 rounded-lg text-center'><h4 class='font-bold text-red-600'>คงค้าง</h4><p class='text-3xl font-bold text-red-800'>${pending}</p></div>
-                <div class='bg-green-50 p-4 rounded-lg text-center'><h4 class='font-bold text-green-600'>ดำเนินการแล้ว</h4><p class='text-3xl font-bold text-green-800'>${completed}</p></div>
-                <div class='bg-indigo-50 p-4 rounded-lg text-center'><h4 class='font-bold text-indigo-600'>เร่งด่วน</h4><p class='text-3xl font-bold text-indigo-800'>${overdue}</p></div>
-            `;
-        }
-        
-        function showSaveStatus(message, isError = false) {
-            const text = saveStatusEl.querySelector('span');
-            const icon = saveStatusEl.querySelector('ion-icon');
-            text.textContent = message;
-
-            icon.name = isError ? 'alert-circle-outline' : 'cloud-done-outline';
-            icon.classList.toggle('text-red-500', isError);
-            icon.classList.toggle('text-green-500', !isError);
-
-            saveStatusEl.style.opacity = '1';
-            setTimeout(() => { saveStatusEl.style.opacity = '0'; }, 3000);
-        }
-
-        // --- Chart Initializations ---
         function initializeCharts() {
             Chart.register(ChartDataLabels, window['chartjs-plugin-annotation']);
-
             const cashCtx = document.getElementById('cashChart')?.getContext('2d');
             if (cashCtx) {
-                const changeMoney = 2500;
-                const pettyCashTotal = 3000;
-                const pettyCashLimit = 3000;
-                const changeMoneyLimit = 2500;
-
                 new Chart(cashCtx, {
                     type: 'bar',
                     data: {
                         labels: ['เงินทอน', 'เงินสดย่อย'],
-                        datasets: [{
-                            data: [changeMoney, pettyCashTotal],
-                            backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(251, 146, 60, 0.7)'],
-                            borderColor: ['rgba(59, 130, 246, 1)', 'rgba(251, 146, 60, 1)'],
-                            borderWidth: 1,
-                            borderRadius: 5,
-                        }]
+                        datasets: [{ data: [2500, 3000], backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(251, 146, 60, 0.7)'], borderColor: ['rgba(59, 130, 246, 1)', 'rgba(251, 146, 60, 1)'], borderWidth: 1, borderRadius: 5, }]
                     },
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         plugins: {
                             legend: { display: false },
-                            datalabels: {
-                                anchor: 'end', align: 'end',
-                                formatter: (value) => new Intl.NumberFormat('th-TH').format(value),
-                                color: '#374151', font: { weight: 'bold' }
-                            },
+                            datalabels: { anchor: 'end', align: 'end', formatter: (value) => new Intl.NumberFormat('th-TH').format(value), color: '#374151', font: { weight: 'bold' } },
                             annotation: {
                                 annotations: {
-                                    pettyCashThreshold: {
-                                        type: 'line', yMin: pettyCashLimit, yMax: pettyCashLimit,
-                                        borderColor: 'rgba(251, 146, 60, 1)', borderWidth: 2, borderDash: [6, 6],
-                                        label: {
-                                            content: `วงเงินสดย่อย (${new Intl.NumberFormat('th-TH').format(pettyCashLimit)})`,
-                                            display: true, position: 'end', backgroundColor: 'rgba(251, 146, 60, 0.8)'
-                                        }
-                                    },
-                                    changeMoneyThreshold: {
-                                        type: 'line', yMin: changeMoneyLimit, yMax: changeMoneyLimit,
-                                        borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, borderDash: [6, 6],
-                                        label: {
-                                            content: `วงเงินทอน (${new Intl.NumberFormat('th-TH').format(changeMoneyLimit)})`,
-                                            display: true, position: 'start', backgroundColor: 'rgba(59, 130, 246, 0.8)'
-                                        }
-                                    }
+                                    pettyCashThreshold: { type: 'line', yMin: 3000, yMax: 3000, borderColor: 'rgba(251, 146, 60, 1)', borderWidth: 2, borderDash: [6, 6], label: { content: `วงเงินสดย่อย (3,000)`, display: true, position: 'end', backgroundColor: 'rgba(251, 146, 60, 0.8)' } },
+                                    changeMoneyThreshold: { type: 'line', yMin: 2500, yMax: 2500, borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, borderDash: [6, 6], label: { content: `วงเงินทอน (2,500)`, display: true, position: 'start', backgroundColor: 'rgba(59, 130, 246, 0.8)' } }
                                 }
                             }
                         },
@@ -473,10 +453,8 @@
                     }
                 });
             }
-
             const productCtx = document.getElementById('productChart')?.getContext('2d');
             if(productCtx) {
-                const systemCount = 911;
                 new Chart(productCtx, {
                     type: 'bar',
                     data: {
@@ -489,7 +467,7 @@
                             legend: { position: 'top' },
                             datalabels: { anchor: 'end', align: 'end', color: '#374151', font: { weight: 'bold' } },
                             annotation: { annotations: {
-                                threshold1: { type: 'line', yMin: systemCount, yMax: systemCount, borderColor: 'rgba(16, 185, 129, 1)', borderWidth: 2, borderDash: [6, 6], label: { content: `จำนวนในระบบ (${systemCount})`, display: true, position: 'end', backgroundColor: 'rgba(16, 185, 129, 0.8)' } },
+                                threshold1: { type: 'line', yMin: 911, yMax: 911, borderColor: 'rgba(16, 185, 129, 1)', borderWidth: 2, borderDash: [6, 6], label: { content: `จำนวนในระบบ (911)`, display: true, position: 'end', backgroundColor: 'rgba(16, 185, 129, 0.8)' } },
                             }}
                         },
                         scales: { y: { beginAtZero: true, title: { display: true, text: 'จำนวน (ชิ้น)'}} }
@@ -497,12 +475,6 @@
                 });
             }
         }
-        
-        // --- Initial Load ---
-        document.addEventListener('DOMContentLoaded', () => {
-             initializeCharts();
-        });
-
     </script>
 </body>
 </html>

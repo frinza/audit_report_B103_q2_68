@@ -49,8 +49,18 @@
     </style>
 </head>
 <body class="p-4 sm:p-8">
+    
+    <!-- Loading State -->
+    <div id="loader" class="flex flex-col justify-center items-center min-h-[80vh]">
+        <svg class="animate-spin h-10 w-10 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p id="loader-text" class="mt-4 text-gray-600">กำลังเชื่อมต่อฐานข้อมูล...</p>
+    </div>
 
-    <div class="w-full max-w-5xl mx-auto">
+    <!-- Main Content (hidden until loaded) -->
+    <div id="main-content" class="w-full max-w-5xl mx-auto" style="display: none;">
         
         <!-- Header Section -->
         <section class="report-section">
@@ -200,7 +210,7 @@
         // Import Firebase modules
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // --- Configuration ---
         const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "DEMO_KEY", authDomain: "DEMO.firebaseapp.com", projectId: "DEMO" };
@@ -214,9 +224,9 @@
         // --- State Management ---
         let findingsData = [];
         let firestoreDocRef;
-        let unsubscribe; // To store the onSnapshot listener remover
+        let unsubscribe; 
 
-        // --- Initial Data (used if Firestore document doesn't exist) ---
+        // --- Initial Data ---
         const initialFindings = [
             { id: 1, finding: "ข้อบกพร่องด้านความปลอดภัย: สินค้า DEMO ไม่ส่งเสียงแจ้งเตือนเมื่อถูกปลดขโมย", suggestion: "ให้หัวหน้าชาแนลเร่งแก้ไขโดยเร่งด่วน เพื่อป้องกันสินค้าถูกขโมย", responsible: "หัวหน้าชาแนล", dueDate: "2025-06-30", status: "คงค้าง" },
             { id: 2, finding: "เจ้าหน้าที่สาขาไม่เพียงพอ: มีเจ้าหน้าที่ประจำการเพียง 1 คน", suggestion: "แนะนำให้หัวหน้าชาแนลประเมิน Traffic เพื่อเตรียมรับมือช่วงเปิดภาคเรียน และพิจารณาใช้กล่องเปล่าโชว์แทนสินค้าจริงในจุดเสี่ยง", responsible: "หัวหน้าชาแนล", dueDate: "", status: "คงค้าง" },
@@ -224,24 +234,43 @@
         ];
 
         // --- UI Elements ---
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        const mainContent = document.getElementById('main-content');
         const saveBtn = document.getElementById('save-btn');
         const saveStatusEl = document.getElementById('save-status');
+
+        // --- UI Control Functions ---
+        function showLoader(message) {
+            loader.style.display = 'flex';
+            mainContent.style.display = 'none';
+            loaderText.innerHTML = `<p class="text-gray-600">${message}</p>`;
+        }
+
+        function showError(message) {
+            loader.style.display = 'flex';
+            mainContent.style.display = 'none';
+            loaderText.innerHTML = `<p class="text-red-500 font-semibold">${message}</p>`;
+        }
+
+        function showContent() {
+            loader.style.display = 'none';
+            mainContent.style.display = 'block';
+        }
 
         // --- Authentication ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 console.log("User is authenticated:", user.uid);
-                // Define the document reference for this specific report
+                loaderText.textContent = 'กำลังโหลดข้อมูลรายงาน...';
                 const reportId = 'b103_20250623';
                 firestoreDocRef = doc(db, "artifacts", appId, "public", "data", "audit_reports", reportId);
                 
-                // Stop listening to old document if any
                 if(unsubscribe) unsubscribe();
-
-                // Start listening for real-time updates
                 loadAndListenForUpdates();
             } else {
                 console.log("User is not authenticated. Signing in...");
+                loaderText.textContent = 'กำลังยืนยันตัวตน...';
                  if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -256,19 +285,18 @@
 
             unsubscribe = onSnapshot(firestoreDocRef, (docSnap) => {
                 if (docSnap.exists()) {
-                    // Document exists, load the data
-                    console.log("Document data loaded from Firestore.");
-                    findingsData = docSnap.data().findings;
+                    findingsData = docSnap.data().findings || [];
+                     console.log("Data loaded from Firestore.");
                 } else {
-                    // Document doesn't exist, create it with initial data
-                    console.log("No such document! Creating with initial data.");
+                    console.log("No document! Creating with initial data.");
                     findingsData = JSON.parse(JSON.stringify(initialFindings));
-                    saveChanges(true); // Save initial data without user interaction
+                    saveChanges(true); // Save initial data silently
                 }
-                // Render the UI with the latest data
                 renderAll();
+                showContent();
             }, (error) => {
                 console.error("Error listening to document:", error);
+                showError("เกิดข้อผิดพลาดในการโหลดข้อมูลจากฐานข้อมูล");
             });
         }
         
@@ -283,7 +311,6 @@
             }
            
             try {
-                // Use setDoc with merge: true to avoid overwriting other fields if any
                 await setDoc(firestoreDocRef, { findings: findingsData }, { merge: true });
                 if(!isInitialSave) {
                     console.log("Changes saved to Firestore!");
@@ -291,11 +318,13 @@
                 }
             } catch (error) {
                 console.error("Error saving changes to Firestore: ", error);
-                 if(!isInitialSave) showSaveStatus("เกิดข้อผิดพลาด!");
+                 if(!isInitialSave) {
+                    showSaveStatus("เกิดข้อผิดพลาด!", true);
+                    saveBtn.disabled = false;
+                 }
             } finally {
                  if(!isInitialSave){
                     saveBtn.textContent = 'บันทึกการเปลี่ยนแปลง';
-                    // The button will be re-enabled by the onSnapshot listener implicitly
                  }
             }
         }
@@ -349,17 +378,14 @@
                     if (itemIndex > -1) {
                         findingsData[itemIndex][key] = value;
                     }
-                    saveBtn.disabled = false; // Enable save button on change
-                    // Re-render immediately for better UX
+                    saveBtn.disabled = false;
                     renderTable();
                     updateDashboardMetrics();
                 };
             });
+            saveBtn.addEventListener('click', () => saveChanges(false));
         }
         
-        saveBtn.addEventListener('click', () => saveChanges(false));
-
-
         function updateDashboardMetrics() {
             const total = findingsData.length;
             const completed = findingsData.filter(f => f.status === 'ดำเนินการแล้ว').length;
@@ -377,17 +403,22 @@
             `;
         }
         
-        function showSaveStatus(message) {
+        function showSaveStatus(message, isError = false) {
             const text = saveStatusEl.querySelector('span');
+            const icon = saveStatusEl.querySelector('ion-icon');
             text.textContent = message;
+
+            icon.name = isError ? 'alert-circle-outline' : 'cloud-done-outline';
+            icon.classList.toggle('text-red-500', isError);
+            icon.classList.toggle('text-green-500', !isError);
+
             saveStatusEl.style.opacity = '1';
             setTimeout(() => { saveStatusEl.style.opacity = '0'; }, 3000);
         }
 
-        // --- Chart Initializations (Run once on DOMContentLoaded)---
-        document.addEventListener('DOMContentLoaded', () => {
-            Chart.register(window.ChartDataLabels);
-            Chart.register(window['chartjs-plugin-annotation']);
+        // --- Chart Initializations ---
+        function initializeCharts() {
+            Chart.register(ChartDataLabels, window['chartjs-plugin-annotation']);
 
             const cashCtx = document.getElementById('cashChart')?.getContext('2d');
             if (cashCtx) {
@@ -413,51 +444,32 @@
                         plugins: {
                             legend: { display: false },
                             datalabels: {
-                                anchor: 'end',
-                                align: 'end',
+                                anchor: 'end', align: 'end',
                                 formatter: (value) => new Intl.NumberFormat('th-TH').format(value),
-                                color: '#374151',
-                                font: { weight: 'bold' }
+                                color: '#374151', font: { weight: 'bold' }
                             },
                             annotation: {
                                 annotations: {
                                     pettyCashThreshold: {
-                                        type: 'line',
-                                        yMin: pettyCashLimit,
-                                        yMax: pettyCashLimit,
-                                        borderColor: 'rgba(251, 146, 60, 1)',
-                                        borderWidth: 2,
-                                        borderDash: [6, 6],
+                                        type: 'line', yMin: pettyCashLimit, yMax: pettyCashLimit,
+                                        borderColor: 'rgba(251, 146, 60, 1)', borderWidth: 2, borderDash: [6, 6],
                                         label: {
                                             content: `วงเงินสดย่อย (${new Intl.NumberFormat('th-TH').format(pettyCashLimit)})`,
-                                            display: true,
-                                            position: 'end',
-                                            backgroundColor: 'rgba(251, 146, 60, 0.8)'
+                                            display: true, position: 'end', backgroundColor: 'rgba(251, 146, 60, 0.8)'
                                         }
                                     },
                                     changeMoneyThreshold: {
-                                        type: 'line',
-                                        yMin: changeMoneyLimit,
-                                        yMax: changeMoneyLimit,
-                                        borderColor: 'rgba(59, 130, 246, 1)',
-                                        borderWidth: 2,
-                                        borderDash: [6, 6],
+                                        type: 'line', yMin: changeMoneyLimit, yMax: changeMoneyLimit,
+                                        borderColor: 'rgba(59, 130, 246, 1)', borderWidth: 2, borderDash: [6, 6],
                                         label: {
                                             content: `วงเงินทอน (${new Intl.NumberFormat('th-TH').format(changeMoneyLimit)})`,
-                                            display: true,
-                                            position: 'start',
-                                            backgroundColor: 'rgba(59, 130, 246, 0.8)'
+                                            display: true, position: 'start', backgroundColor: 'rgba(59, 130, 246, 0.8)'
                                         }
                                     }
                                 }
                             }
                         },
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                title: { display: true, text: 'จำนวนเงิน (บาท)' }
-                            }
-                        }
+                        scales: { y: { beginAtZero: true, title: { display: true, text: 'จำนวนเงิน (บาท)' } } }
                     }
                 });
             }
@@ -484,6 +496,11 @@
                     }
                 });
             }
+        }
+        
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', () => {
+             initializeCharts();
         });
 
     </script>

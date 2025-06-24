@@ -43,8 +43,8 @@
             text-align: center;
             margin-bottom: 2rem;
         }
-        .prose {
-            max-width: none;
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
@@ -56,8 +56,23 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <p id="loader-text" class="mt-4 text-gray-600">กำลังเชื่อมต่อฐานข้อมูล...</p>
+        <p id="loader-text" class="mt-4 text-gray-600">กำลังโหลดข้อมูล...</p>
     </div>
+
+     <!-- Password Modal -->
+    <div id="password-modal" class="fixed inset-0 items-center justify-center z-50 hidden modal-overlay">
+        <div class="bg-white p-6 rounded-lg shadow-xl w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-4">ยืนยันการบันทึก</h3>
+            <p class="text-sm text-gray-600 mb-2">กรุณาใส่รหัสผ่านเพื่อบันทึกการเปลี่ยนแปลง</p>
+            <input type="password" id="password-input" class="w-full p-2 border border-gray-300 rounded-md" placeholder="รหัสผ่าน...">
+            <p id="password-error" class="text-red-500 text-xs mt-1 h-4"></p>
+            <div class="flex justify-end gap-2 mt-4">
+                <button id="cancel-save-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300">ยกเลิก</button>
+                <button id="confirm-save-btn" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">ยืนยัน</button>
+            </div>
+        </div>
+    </div>
+
 
     <!-- Main Content (hidden until loaded) -->
     <div id="main-content" class="w-full max-w-5xl mx-auto" style="display: none;">
@@ -206,228 +221,212 @@
 
     </div>
 
-    <script type="module">
-        // Import Firebase modules
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+    <script>
+        // --- App Configuration ---
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_RVfHZwvnYgvhWleuLERcugjhnfxCe43SDrp1re0aasaAT7QA2CNrEHPnzFEvCeSlXA/exec";
+        const PASSWORD = "OA2025"; // Audit password
+        
         // --- UI Elements ---
         const loader = document.getElementById('loader');
         const loaderText = document.getElementById('loader-text');
         const mainContent = document.getElementById('main-content');
+        const tableBody = document.getElementById('findings-table-body');
         const saveBtn = document.getElementById('save-btn');
         const saveStatusEl = document.getElementById('save-status');
+        const passwordModal = document.getElementById('password-modal');
+        const passwordInput = document.getElementById('password-input');
+        const passwordError = document.getElementById('password-error');
+        const cancelSaveBtn = document.getElementById('cancel-save-btn');
+        const confirmSaveBtn = document.getElementById('confirm-save-btn');
+
+        // --- App State ---
+        let findingsData = [];
+        let saveTimeout;
         
         // --- UI Control Functions ---
-        function showLoader(message) {
+        const showLoader = (message) => {
             loader.style.display = 'flex';
             mainContent.style.display = 'none';
-            loaderText.innerHTML = `<p class="text-gray-600">${message}</p>`;
-        }
+            loaderText.textContent = message;
+        };
 
-        function showError(message) {
+        const showError = (message, showTestLink = false) => {
             loader.style.display = 'flex';
             mainContent.style.display = 'none';
-            loaderText.innerHTML = `<p class="text-red-500 font-semibold">${message}</p>`;
-        }
+            let finalMessage = `<p class="text-red-500 font-semibold">${message}</p>`;
+            if (showTestLink) {
+                finalMessage += `<a href="${SCRIPT_URL}" target="_blank" class="mt-2 text-sm text-blue-600 hover:underline">คลิกเพื่อทดสอบ Script URL</a>`;
+            }
+            loaderText.innerHTML = finalMessage;
+        };
 
-        function showContent() {
+        const showContent = () => {
             loader.style.display = 'none';
             mainContent.style.display = 'block';
-        }
+        };
+        
+        const showSaveStatus = (message, isError = false) => {
+            const icon = saveStatusEl.querySelector('ion-icon');
+            const text = saveStatusEl.querySelector('span');
+            clearTimeout(saveTimeout);
+            saveStatusEl.style.opacity = '1';
+            text.textContent = message;
+            
+            icon.name = isError ? 'alert-circle-outline' : 'cloud-done-outline';
+            icon.classList.toggle('text-red-500', isError);
+            icon.classList.toggle('text-green-500', !isError);
 
-        // --- Initial Data (Fallback) ---
-        const initialFindings = [
-            { id: 1, finding: "ข้อบกพร่องด้านความปลอดภัย: สินค้า DEMO ไม่ส่งเสียงแจ้งเตือนเมื่อถูกปลดขโมย", suggestion: "ให้หัวหน้าชาแนลเร่งแก้ไขโดยเร่งด่วน เพื่อป้องกันสินค้าถูกขโมย", responsible: "หัวหน้าชาแนล", dueDate: "2025-06-30", status: "คงค้าง" },
-            { id: 2, finding: "เจ้าหน้าที่สาขาไม่เพียงพอ: มีเจ้าหน้าที่ประจำการเพียง 1 คน", suggestion: "แนะนำให้หัวหน้าชาแนลประเมิน Traffic เพื่อเตรียมรับมือช่วงเปิดภาคเรียน และพิจารณาใช้กล่องเปล่าโชว์แทนสินค้าจริงในจุดเสี่ยง", responsible: "หัวหน้าชาแนล", dueDate: "", status: "คงค้าง" },
-            { id: 3, finding: "สินค้าแขวนไม่เต็มช่องแขวนสินค้า", suggestion: "ให้พิจารณาขอเพิ่มสินค้าให้สามารถจัดแสดงในจุดแขวนได้ครบถ้วนเพียงพอ", responsible: "เจ้าหน้าที่, หัวหน้าชาแนล, PM", dueDate: "", status: "คงค้าง" }
-        ];
+            if (message !== 'กำลังบันทึก...'){
+                saveTimeout = setTimeout(() => { saveStatusEl.style.opacity = '0'; }, 3000);
+            }
+        };
 
-        // --- Main Execution Block ---
-        document.addEventListener('DOMContentLoaded', () => {
+        // --- Data Fetching & Saving ---
+        const fetchData = () => {
+            showLoader('กำลังโหลดข้อมูล...');
+            const callbackName = 'jsonpCallback' + Date.now();
+            window[callbackName] = (data) => {
+                document.body.removeChild(script);
+                delete window[callbackName];
+                if (data.error) {
+                    showError(`เกิดข้อผิดพลาดจากสคริปต์: ${data.error}`);
+                } else {
+                    findingsData = data.findings;
+                    renderUI();
+                }
+            };
+            const script = document.createElement('script');
+            script.src = `${SCRIPT_URL}?callback=${callbackName}`;
+            script.onerror = () => {
+                showError("เกิดข้อผิดพลาดในการโหลดสคริปต์ (JSONP). กรุณาตรวจสอบว่า URL ถูกต้อง และสคริปต์ถูก Deploy ให้เข้าถึงได้โดย 'Anyone'", true);
+                delete window[callbackName];
+            };
+            document.body.appendChild(script);
+        };
+
+        const saveData = async () => {
+            showSaveStatus("กำลังบันทึก...");
+            confirmSaveBtn.disabled = true;
             try {
-                // --- Configuration and Initialization ---
-                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : '';
-                if (!configStr || configStr.trim() === '') {
-                    throw new Error("Firebase configuration is missing or empty.");
-                }
-                const firebaseConfig = JSON.parse(configStr);
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-audit-app';
-
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
-                const db = getFirestore(app);
-
-                // --- State Management ---
-                let findingsData = [];
-                let firestoreDocRef;
-                let unsubscribe; 
-
-                // --- Authentication ---
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        console.log("User is authenticated:", user.uid);
-                        loaderText.textContent = 'กำลังโหลดข้อมูลรายงาน...';
-                        const reportId = 'b103_20250623';
-                        firestoreDocRef = doc(db, "artifacts", appId, "public", "data", "audit_reports", reportId);
-                        
-                        if(unsubscribe) unsubscribe();
-                        loadAndListenForUpdates(db, firestoreDocRef);
-                    } else {
-                        console.log("User is not authenticated. Attempting to sign in...");
-                        loaderText.textContent = 'กำลังยืนยันตัวตน...';
-                        try {
-                            const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                            if (authToken && authToken.trim() !== '') {
-                                await signInWithCustomToken(auth, authToken);
-                            } else {
-                                await signInAnonymously(auth);
-                            }
-                        } catch (authError) {
-                            console.error("Firebase sign-in failed:", authError);
-                            showError(`การยืนยันตัวตนล้มเหลว: ${authError.message}.<br>กรุณาตรวจสอบการตั้งค่า Firebase backend`);
-                        }
-                    }
+                // Using POST with a redirect to handle the response from Google Apps Script
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', // Important for simple Google Apps Script doPost
+                    body: JSON.stringify({ password: PASSWORD, findings: findingsData }),
+                    headers: { 'Content-Type': 'application/json' },
                 });
-
-                // --- Firestore Data Handling ---
-                function loadAndListenForUpdates(db, docRef) {
-                    if (!docRef) return;
-                    unsubscribe = onSnapshot(docRef, (docSnap) => {
-                        if (docSnap.exists()) {
-                            findingsData = docSnap.data().findings || [];
-                            console.log("Data loaded from Firestore.");
-                        } else {
-                            console.log("No document! Creating with initial data.");
-                            findingsData = JSON.parse(JSON.stringify(initialFindings));
-                            saveChanges(true);
-                        }
-                        renderAll();
-                        showContent();
-                    }, (error) => {
-                        console.error("Error listening to document:", error);
-                        showError("เกิดข้อผิดพลาดในการโหลดข้อมูลจากฐานข้อมูล");
-                    });
-                }
                 
-                async function saveChanges(isInitialSave = false) {
-                    if (!firestoreDocRef) {
-                        console.error("Firestore document reference not set.");
-                        return;
-                    }
-                    if(!isInitialSave) {
-                         saveBtn.disabled = true;
-                         saveBtn.textContent = 'กำลังบันทึก...';
-                    }
-                    try {
-                        await setDoc(firestoreDocRef, { findings: findingsData }, { merge: true });
-                        if(!isInitialSave) {
-                            console.log("Changes saved to Firestore!");
-                            showSaveStatus("บันทึกสำเร็จ!");
-                        }
-                    } catch (error) {
-                        console.error("Error saving changes to Firestore: ", error);
-                         if(!isInitialSave) {
-                            showSaveStatus("เกิดข้อผิดพลาด!", true);
-                            saveBtn.disabled = false;
-                         }
-                    } finally {
-                         if(!isInitialSave){
-                            saveBtn.textContent = 'บันทึกการเปลี่ยนแปลง';
-                         }
-                    }
-                }
-
-                // --- Rendering Logic ---
-                function renderAll() {
-                    renderTable();
-                    updateDashboardMetrics();
-                }
-
-                function renderTable() {
-                    const tableBody = document.getElementById('findings-table-body');
-                    if (!tableBody) return;
-                    tableBody.innerHTML = '';
-                    findingsData.forEach(item => {
-                        const row = document.createElement('tr');
-                        let rowClass = 'bg-white hover:bg-gray-50 align-top';
-                        if(item.status === 'ดำเนินการแล้ว') {
-                            rowClass = 'bg-green-50 hover:bg-green-100 text-gray-500 line-through align-top';
-                        }
-                        row.className = `border-b ${rowClass} transition-colors duration-300`;
-                        row.innerHTML = `
-                            <td class="px-4 py-4 text-center">${item.id}</td>
-                            <td class="px-4 py-4 font-semibold text-current">${item.finding}</td>
-                            <td class="px-4 py-4 text-xs text-current">${item.suggestion}</td>
-                            <td class="px-4 py-4 text-current">${item.responsible}</td>
-                            <td class="px-4 py-4 text-center">
-                                <input type="date" class="w-full p-1 border border-gray-300 rounded-md text-sm text-center date-input" value="${item.dueDate}" data-id="${item.id}">
-                            </td>
-                            <td class="px-4 py-3 text-center">
-                                <select class="w-full p-1.5 border border-gray-300 rounded-md text-xs status-select" data-id="${item.id}">
-                                    <option value="คงค้าง" ${item.status === 'คงค้าง' ? 'selected' : ''}>คงค้าง</option>
-                                    <option value="ดำเนินการแล้ว" ${item.status === 'ดำเนินการแล้ว' ? 'selected' : ''}>ดำเนินการแล้ว</option>
-                                </select>
-                            </td>`;
-                        tableBody.appendChild(row);
-                    });
-                    attachTableEventListeners();
-                }
-
-                function attachTableEventListeners(){
-                    document.querySelectorAll('.date-input, .status-select').forEach(element => {
-                        element.onchange = (e) => {
-                            const id = parseInt(e.target.dataset.id);
-                            const key = e.target.classList.contains('date-input') ? 'dueDate' : 'status';
-                            const value = e.target.value;
-                            const itemIndex = findingsData.findIndex(item => item.id === id);
-                            if (itemIndex > -1) {
-                                findingsData[itemIndex][key] = value;
-                            }
-                            saveBtn.disabled = false;
-                            renderTable();
-                            updateDashboardMetrics();
-                        };
-                    });
-                    saveBtn.addEventListener('click', () => saveChanges(false));
-                }
-                
-                function updateDashboardMetrics() {
-                    const total = findingsData.length;
-                    const completed = findingsData.filter(f => f.status === 'ดำเนินการแล้ว').length;
-                    const pending = total - completed;
-                    const overdue = findingsData.filter(f => f.dueDate && new Date(f.dueDate) < new Date() && f.status === 'คงค้าง').length;
-                    const metricsContainer = document.getElementById('dashboard-metrics');
-                    if(!metricsContainer) return;
-                    metricsContainer.innerHTML = `
-                        <div class='bg-gray-100 p-4 rounded-lg text-center'><h4 class='font-bold text-gray-600'>ข้อตรวจพบทั้งหมด</h4><p class='text-3xl font-bold text-gray-800'>${total}</p></div>
-                        <div class='bg-red-50 p-4 rounded-lg text-center'><h4 class='font-bold text-red-600'>คงค้าง</h4><p class='text-3xl font-bold text-red-800'>${pending}</p></div>
-                        <div class='bg-green-50 p-4 rounded-lg text-center'><h4 class='font-bold text-green-600'>ดำเนินการแล้ว</h4><p class='text-3xl font-bold text-green-800'>${completed}</p></div>
-                        <div class='bg-indigo-50 p-4 rounded-lg text-center'><h4 class='font-bold text-indigo-600'>เร่งด่วน</h4><p class='text-3xl font-bold text-indigo-800'>${overdue}</p></div>`;
-                }
-                
-                function showSaveStatus(message, isError = false) {
-                    const text = saveStatusEl.querySelector('span');
-                    const icon = saveStatusEl.querySelector('ion-icon');
-                    text.textContent = message;
-                    icon.name = isError ? 'alert-circle-outline' : 'cloud-done-outline';
-                    icon.classList.toggle('text-red-500', isError);
-                    icon.classList.toggle('text-green-500', !isError);
-                    saveStatusEl.style.opacity = '1';
-                    setTimeout(() => { saveStatusEl.style.opacity = '0'; }, 3000);
-                }
-
-                // --- Chart Initializations ---
-                initializeCharts();
+                showSaveStatus("บันทึกแล้ว");
+                saveBtn.disabled = true;
+                closePasswordModal();
 
             } catch (error) {
-                console.error("Initialization Error:", error);
-                showError(`เกิดข้อผิดพลาดในการเริ่มต้น: ${error.message}`);
+                console.error("Save Error:", error);
+                showSaveStatus("ผิดพลาด", true);
+                passwordError.textContent = 'เกิดข้อผิดพลาดในการส่งข้อมูล';
+            } finally {
+                confirmSaveBtn.disabled = false;
             }
-        });
+        };
 
-        function initializeCharts() {
+        // --- Rendering ---
+        const renderUI = () => {
+            renderTable();
+            updateDashboardMetrics();
+            showContent();
+        };
+
+        const renderTable = () => {
+            tableBody.innerHTML = '';
+            if (!Array.isArray(findingsData)) {
+                showError("ข้อมูลที่ได้รับมีรูปแบบไม่ถูกต้อง");
+                return;
+            }
+            findingsData.forEach(item => {
+                const row = document.createElement('tr');
+                let rowClass = 'bg-white hover:bg-gray-50 align-top';
+                if(item.status === 'ดำเนินการแล้ว') {
+                    rowClass = 'bg-green-50 hover:bg-green-100 text-gray-500 line-through align-top';
+                }
+                row.className = `border-b ${rowClass} transition-colors duration-300`;
+                row.innerHTML = `
+                    <td class="px-4 py-4 text-center">${item.id}</td>
+                    <td class="px-4 py-4 font-semibold text-current">${item.finding}</td>
+                    <td class="px-4 py-4 text-xs text-current">${item.suggestion}</td>
+                    <td class="px-4 py-4 text-current">${item.responsible}</td>
+                    <td class="px-4 py-4 text-center">
+                        <input type="date" class="w-full p-1 border border-gray-300 rounded-md text-sm text-center date-input" value="${item.dueDate}" data-id="${item.id}">
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <select class="w-full p-1.5 border border-gray-300 rounded-md text-xs status-select" data-id="${item.id}">
+                            <option value="คงค้าง" ${item.status === 'คงค้าง' ? 'selected' : ''}>คงค้าง</option>
+                            <option value="ดำเนินการแล้ว" ${item.status === 'ดำเนินการแล้ว' ? 'selected' : ''}>ดำเนินการแล้ว</option>
+                        </select>
+                    </td>`;
+                tableBody.appendChild(row);
+            });
+        };
+
+        const updateDashboardMetrics = () => {
+            if (!Array.isArray(findingsData)) return;
+            const total = findingsData.length;
+            const completed = findingsData.filter(f => f.status === 'ดำเนินการแล้ว').length;
+            const pending = total - completed;
+            const overdue = findingsData.filter(f => f.dueDate && new Date(f.dueDate) < new Date() && f.status === 'คงค้าง').length;
+            document.getElementById('dashboard-metrics').innerHTML = `
+                <div class='bg-gray-100 p-4 rounded-lg text-center'><h4 class='font-bold text-gray-600'>ข้อตรวจพบทั้งหมด</h4><p class='text-3xl font-bold text-gray-800'>${total}</p></div>
+                <div class='bg-red-50 p-4 rounded-lg text-center'><h4 class='font-bold text-red-600'>คงค้าง</h4><p class='text-3xl font-bold text-red-800'>${pending}</p></div>
+                <div class='bg-green-50 p-4 rounded-lg text-center'><h4 class='font-bold text-green-600'>ดำเนินการแล้ว</h4><p class='text-3xl font-bold text-green-800'>${completed}</p></div>
+                <div class='bg-indigo-50 p-4 rounded-lg text-center'><h4 class='font-bold text-indigo-600'>เร่งด่วน</h4><p class='text-3xl font-bold text-indigo-800'>${overdue}</p></div>`;
+        };
+
+        // --- Modal Control ---
+        const openPasswordModal = () => {
+            passwordModal.classList.remove('hidden');
+            passwordModal.classList.add('flex');
+            passwordInput.value = '';
+            passwordError.textContent = '';
+            passwordInput.focus();
+        };
+
+        const closePasswordModal = () => {
+            passwordModal.classList.add('hidden');
+            passwordModal.classList.remove('flex');
+        };
+
+        // --- Event Listeners Setup ---
+        const initializeEventListeners = () => {
+            tableBody.addEventListener('change', (e) => {
+                if (e.target.matches('.date-input, .status-select')) {
+                    const id = parseInt(e.target.dataset.id);
+                    const key = e.target.classList.contains('date-input') ? 'dueDate' : 'status';
+                    const value = e.target.value;
+                    const itemIndex = findingsData.findIndex(item => item.id === id);
+                    if (itemIndex > -1) {
+                        findingsData[itemIndex][key] = value;
+                        saveBtn.disabled = false;
+                        renderTable();
+                        updateDashboardMetrics();
+                    }
+                }
+            });
+
+            saveBtn.addEventListener('click', openPasswordModal);
+            cancelSaveBtn.addEventListener('click', closePasswordModal);
+            confirmSaveBtn.addEventListener('click', () => {
+                if (passwordInput.value === PASSWORD) {
+                    saveData();
+                } else {
+                    passwordError.textContent = "รหัสผ่านไม่ถูกต้อง";
+                }
+            });
+            passwordInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') confirmSaveBtn.click();
+            });
+        };
+        
+        // --- Chart Initializations ---
+        const initializeCharts = () => {
             Chart.register(ChartDataLabels, window['chartjs-plugin-annotation']);
             const cashCtx = document.getElementById('cashChart')?.getContext('2d');
             if (cashCtx) {
@@ -474,7 +473,14 @@
                     }
                 });
             }
-        }
+        };
+
+        // --- App Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeCharts();
+            initializeEventListeners();
+            fetchData();
+        });
     </script>
 </body>
 </html>
